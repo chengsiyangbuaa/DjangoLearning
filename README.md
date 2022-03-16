@@ -205,4 +205,164 @@
         ```
         Now two new tables polls_choice and polls_question have been created in database by django.
 * use API
-    
+    * use shell to conveniently use API
+        ```python
+        >>> from polls.models import Choice, Question  # Import the model classes we just wrote.
+
+        # No questions are in the system yet.
+        >>> Question.objects.all()
+        <QuerySet []>
+
+        # Create a new Question.
+        # Support for time zones is enabled in the default settings file, so
+        # Django expects a datetime with tzinfo for pub_date. Use timezone.now()
+        # instead of datetime.datetime.now() and it will do the right thing.
+        >>> from django.utils import timezone
+        >>> q = Question(question_text="What's new?", pub_date=timezone.now())
+
+        # Save the object into the database. You have to call save() explicitly.
+        >>> q.save()
+
+        # Now it has an ID.
+        >>> q.id
+        1
+
+        # Access model field values via Python attributes.
+        >>> q.question_text
+        "What's new?"
+        >>> q.pub_date
+        datetime.datetime(2012, 2, 26, 13, 0, 0, 775217, tzinfo=<UTC>)
+
+        # Change values by changing the attributes, then calling save().
+        >>> q.question_text = "What's up?"
+        >>> q.save()
+
+        # objects.all() displays all the questions in the database.
+        >>> Question.objects.all()
+        <QuerySet [<Question: Question object (1)>]>    
+        ```
+    * \__str__() method in models
+        ```python
+        from django.db import models
+
+        class Question(models.Model):
+            # ...
+            def __str__(self):
+                return self.question_text
+
+        class Choice(models.Model):
+            # ...
+            def __str__(self):
+                return self.choice_text        
+        ```
+* create an admin user
+    * first of all, create a admin user
+    ```python
+    python manage.py createsuperuser
+    ```
+    * then follow the prompts to register
+    * start the development server
+    ```python
+    python manage.py runserver
+    ```
+    * check your broswer
+    ```python
+    http://127.0.0.1:8000/admin/
+    ```
+* use of admin site
+    * enter the admin site
+    enter your name and password
+    * make the poll app modifiable in the admin
+    ```python
+    #polls/admin.py
+    from django.contrib import admin
+
+    from .models import Question
+
+    admin.site.register(Question)
+    ```
+* focus on views
+    * write more views
+    ```python
+    #polls/views.py
+    def detail(request, question_id):
+        return HttpResponse("You're looking at question %s." % question_id)
+
+    def results(request, question_id):
+        response = "You're looking at the results of question %s."
+        return HttpResponse(response % question_id)
+
+    def vote(request, question_id):
+        return HttpResponse("You're voting on question %s." % question_id)
+    ```
+    * modify polls.urls
+    ```python
+    from django.urls import path
+
+    from . import views
+
+    urlpatterns = [
+        path('', views.index, name='index'),
+        path('<int:question_id>/', views.detail, name='detail'),
+        path('<int:question_id>/results/', views.results, name='results'),
+        path('<int:question_id>/vote/', views.vote, name='vote'),
+    ]
+    ```
+* check your broswer
+    ```python
+    http://127.0.0.1:8000/polls/15
+    http://127.0.0.1:8000/polls/15/results/
+    http://127.0.0.1:8000/polls/15/vote/
+    ```
+* What a view really do?
+Each view is responsible for doing one of two things: **returning an HttpResponse** object containing the content for the requested page, or **raising an exception** such as Http404. The rest is up to you.
+
+* let views do more things
+    * rewrite index() function
+        ```python
+        #polls/views.py
+        def index(request):
+            latest_question_list = Question.objects.order_by('-pub_date')[:5]
+            output = ', '.join([q.question_text for q in latest_question_list])
+            return HttpResponse(output)
+        ```
+    * check your broswer
+    ```python
+    http://127.0.0.1:8000/polls/
+    ``` 
+## templates
+* create a directory called templates in your polls directory.
+Django will look for templates in there.
+* **APP_DIRS**
+Default: False
+Whether the engine should look for template source files inside installed applications.
+* Within the templates directory you have just created, create another directory called polls, and within that create a file called index.html. In other words, your template should be at polls/templates/polls/index.html. 
+Because of how the app_directories template loader works as described above, you can refer to this template within Django as polls/index.html.
+* Template namespacing
+Now we might be able to get away with putting our templates directly in polls/templates (rather than creating another polls subdirectory), but it would actually be a bad idea. Django will choose the first template it finds whose name matches, and if you had a template with the same name in a different application, Django would be unable to distinguish between them. We need to be able to point Django at the right one, and the best way to ensure this is by namespacing them. That is, by putting those templates inside another directory named for the application itself.
+* write polls/index.html
+    ```python
+    {% if latest_question_list %}
+        <ul>
+        {% for question in latest_question_list %}
+            <li><a href="/polls/{{ question.id }}/">{{ question.question_text }}</a></li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No polls are available.</p>
+    {% endif %}
+    ```
+* rewrite index in polls.views.py
+    ```python
+    def index(request):
+        latest_question_list = Question.objects.order_by('-pub_date')[:5]
+        template = loader.get_template('polls/index.html')
+        context = {'latest_question_list':latest_question_list}
+        return HttpResponse(template.render(context,request))  
+    ```
+    That code loads the template called polls/index.html and passes it a context. 
+    The context is a dictionary mapping template variable names to Python objects.
+* check your broswer
+```python
+http://127.0.0.1:8000/polls/
+``` 
