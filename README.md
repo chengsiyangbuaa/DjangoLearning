@@ -1,4 +1,4 @@
-# DjangoLearning
+# DjangoLearning Tutorial 4.0
 ***
 ## previous work
 
@@ -83,9 +83,9 @@
         ```
     * install pymysql
     in terminal
-    ```python
-    pip install pymysql
-    ```
+        ```python
+        pip install pymysql
+        ```
     * modify the __init__.py file in project
 * create tables in database
     * why create tables
@@ -205,6 +205,10 @@
         ```
         Now two new tables polls_choice and polls_question have been created in database by django.
 * use API
+    * open django shell
+        ```python
+        python manage.py shell
+        ```
     * use shell to conveniently use API
         ```python
         >>> from polls.models import Choice, Question  # Import the model classes we just wrote.
@@ -363,6 +367,148 @@ Now we might be able to get away with putting our templates directly in polls/te
     That code loads the template called polls/index.html and passes it a context. 
     The context is a dictionary mapping template variable names to Python objects.
 * check your broswer
-```python
-http://127.0.0.1:8000/polls/
-``` 
+    ```python
+    http://127.0.0.1:8000/polls/
+    ``` 
+* a shortcut render() method
+rewrite index in polls/views.py
+    ```python
+    def index(request):
+        latest_question_list = Question.objects.order_by('-pub_date')[:5]
+        context = {'latest_question_list': latest_question_list}
+        return render(request, 'polls/index.html', context)
+    ```
+The render() function takes the request object as its first argument, a template name as its second argument and a dictionary as its optional third argument. It returns an HttpResponse object of the given template rendered with the given context.
+* Raising a 404 error
+    * rewrite detail in polls/views.py
+        ```python
+        try:
+            question = Question.objects.get(pk=question_id)
+        except Question.DoesNotExist:
+            raise Http404("Question does not exist")
+        return render(request, 'polls/detail.html', {'question': question})    
+        ```
+    * create templates/polls/detail.html
+        ```python
+        {{ question }}
+        ```
+    * check your broswer
+        ```python
+        http://127.0.0.1:8000/polls/3
+        ``` 
+* a shortcut : get_object_or_404()
+It’s a very common idiom to use get() and raise Http404 if the object doesn’t exist. Django provides a shortcut.
+    * rewrite detail() in polls/views.py
+        ```python
+        question = get_object_or_404(Question, pk=question_id)
+        return render(request, 'polls/detail.html', {'question': question})
+        ```
+    * Why do we use a helper function get_object_or_404() instead of automatically catching the ObjectDoesNotExist exceptions at a higher level, or having the model API raise Http404 instead of ObjectDoesNotExist?
+    Because that would couple the model layer to the view layer. One of the foremost design goals of Django is to maintain loose coupling. Some controlled coupling is introduced in the django.shortcuts module.
+    There’s also a get_list_or_404() function, which works just as get_object_or_404() – except using filter() instead of get(). It raises Http404 if the list is empty.
+* thinking about the use of url
+    * Now, we use a hardcoded url in template, details are as follow:
+        ```python
+        <li><a href="/polls/{{ question.id }}/">{{ question.question_text }}</a></li>
+        ```
+        /polls/ is hardcoded url
+    * The problem with this hardcoded, tightly-coupled approach is that it becomes challenging to change URLs on projects with a lot of templates.
+    * However, since you defined the name argument in the path() functions in the polls.urls module, you can remove a reliance on specific URL paths defined in your url configurations by using the {% url %} template tag:
+        ```python
+        <li><a href="{% url 'detail' question.id %}">{{ question.question_text }}</a></li>
+        ```
+    * now, we can change url in views.py only once, and url in templates will change follow it.
+        ```python
+        path('specifics/<int:question_id>/', views.detail, name='detail'),
+        ```
+    * Namespacing URL names
+    Conflictions will appear if different apps set their urls' name with detail.
+    How does Django differentiate the URL names between them?
+    * The answer is to add namespaces to your URLconf. In the polls/urls.py file, go ahead and add an app_name to set the application namespace:
+        ```python
+        from django.urls import path
+
+        from . import views
+
+        app_name = 'polls'
+        urlpatterns = [
+            path('', views.index, name='index'),
+            path('<int:question_id>/', views.detail, name='detail'),
+            path('<int:question_id>/results/', views.results, name='results'),
+            path('<int:question_id>/vote/', views.vote, name='vote'),
+        ]
+        ```
+    * Now change your polls/index.html template from:
+        ```python
+        <li><a href="{% url 'detail' question.id %}">{{ question.question_text }}</a></li>
+        ```
+        to point at the namespaced detail view:
+        ```python
+        <li><a href="{% url 'polls:detail' question.id %}">{{ question.question_text }}</a></li>
+        ```
+## form processing
+* form in django
+    * Write a minimal form vote.html
+        ```python
+        <form action="{% url 'polls:vote' question.id %}" method="post">
+        {% csrf_token %}
+        <fieldset>
+            <legend><h1>{{ question.question_text }}</h1></legend>
+            {% if error_message %}<p><strong>{{ error_message }}</strong></p>{% endif %}
+            {% for choice in question.choice_set.all %}
+                <input type="radio" name="choice" id="choice{{ forloop.counter }}" value="{{ choice.id }}">
+                <label for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label><br>
+            {% endfor %}
+        </fieldset>
+        <input type="submit" value="Vote">
+        </form>    
+        ```
+        something important:
+        * forloop.counter indicates how many times the for tag has gone through its loop
+        * Since we’re creating a POST form (which can have the effect of modifying data), we need to worry about Cross Site Request Forgeries. Thankfully, you don’t have to worry too hard, because Django comes with a helpful system for protecting against it. In short, all POST forms that are targeted at internal URLs should use the {% csrf_token %} template tag.
+    * rewrite vote() in polls/views.py
+        ```python
+        def vote(request, question_id):
+            question = get_object_or_404(Question, pk=question_id)
+            try:
+                selected_choice = question.choice_set.get(pk=request.POST['choice'])
+            except (KeyError, Choice.DoesNotExist):
+                # Redisplay the question voting form.
+                return render(request, 'polls/detail.html', {
+                    'question': question,
+                    'error_message': "You didn't select a choice.",
+                })
+            else:
+                selected_choice.votes += 1
+                selected_choice.save()
+                # Always return an HttpResponseRedirect after successfully dealing
+                # with POST data. This prevents data from being posted twice if a
+                # user hits the Back button.
+                return HttpResponseRedirect(reverse('polls:results', args=(question.id,)))
+        ```
+    * rewrite results() in polls/views.py
+        ```python
+        def results(request, question_id):
+            question = get_object_or_404(Question, pk=question_id)
+            return render(request, 'polls/results.html', {'question': question})
+        ```
+    * create a polls/results.html template
+        ```python
+        <h1>{{ question.question_text }}</h1>
+
+        <ul>
+        {% for choice in question.choice_set.all %}
+            <li>{{ choice.choice_text }} -- {{ choice.votes }} vote{{ choice.votes|pluralize }}</li>
+        {% endfor %}
+        </ul>
+
+        <a href="{% url 'polls:detail' question.id %}">Vote again?</a>
+        ```
+    * check your broswer
+        ```python
+        http://127.0.0.1:8000/polls/3
+        ```
+    * **race condition**
+    The code for our vote() view does have a small problem. It first gets the selected_choice object from the database, then computes the new value of votes, and then saves it back to the database. If two users of your website try to vote at exactly the same time, this might go wrong: The same value, let’s say 42, will be retrieved for votes. Then, for both users the new value of 43 is computed and saved, but 44 would be the expected value.
+## Use generic views
+These views represent a common case of basic web development: getting data from the database according to a parameter passed in the URL, loading a template and returning the rendered template. Because this is so common, Django provides a shortcut, called the “**generic views**” system.
